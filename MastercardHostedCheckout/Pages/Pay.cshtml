@@ -1,0 +1,56 @@
+@page
+@model dynamic
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <title>Pay</title>
+
+  <!-- IMPORTANT: Same gateway host as BaseUrl -->
+  <script src="https://test-gateway.mastercard.com/static/checkout/checkout.min.js"
+          data-error="errorCallback"
+          data-cancel="cancelCallback"></script>
+</head>
+<body class="container py-5">
+  <div class="card shadow-sm mx-auto" style="max-width: 400px;">
+    <div class="card-body text-center">
+      <h3 class="card-title">Checkout</h3>
+      <p class="text-muted">Test Order - 1.000 KWD</p>
+      <button class="btn btn-primary btn-lg w-100" onclick="startPay()">Pay Now</button>
+    </div>
+  </div>
+
+  <script>
+    async function startPay() {
+      try {
+        const r = await fetch("/api/mpgs/session", { method: "POST" });
+        const data = await r.json();
+
+        if (data.sessionId) {
+          // MUST configure with session id from server
+          Checkout.configure({
+            merchant: "009131656", // Using your merchant ID
+            session: { id: data.sessionId }
+          });
+
+          Checkout.showPaymentPage();
+        } else {
+          alert("Failed to create session: " + JSON.stringify(data));
+        }
+      } catch (e) {
+        console.error("Error starting pay:", e);
+        alert("Error starting pay. Check console.");
+      }
+    }
+
+    function errorCallback(err) {
+      console.error("MPGS error:", err);
+      alert("Payment error: " + (err?.cause || "unknown"));
+    }
+    function cancelCallback() {
+      console.warn("User cancelled");
+      alert("Cancelled");
+    }
+  </script>
+</body>
+</html>

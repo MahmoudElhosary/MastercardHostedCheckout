@@ -1,0 +1,24 @@
+@{
+    ViewData["Title"] = "Payment Successful";
+}
+
+<div class="container mt-5 text-center">
+    <div class="card shadow-sm p-5">
+        <div class="mb-4">
+            <i class="bi bi-check-circle-fill text-success" style="font-size: 4rem;"></i>
+        </div>
+        <h1 class="display-5 fw-bold mb-3">Thank You!</h1>
+        <p class="lead mb-4">Your payment was processed successfully.</p>
+        
+        <div class="alert alert-light border text-start d-inline-block p-4">
+            <p class="mb-1"><strong>Order ID:</strong> <code class="text-primary">@ViewBag.OrderId</code></p>
+            <p class="mb-1"><strong>Payment Transaction ID:</strong> <code class="text-primary">@ViewBag.PayTransactionId</code></p>
+            <p class="mb-1"><strong>Result Indicator:</strong> <code class="text-primary">@ViewBag.ResultIndicator</code></p>
+            <p class="mb-0"><strong>Status:</strong> <span class="badge bg-success">@ViewBag.PaymentStatus</span></p>
+        </div>
+
+        <div class="mt-4">
+            <a asp-action="Index" class="btn btn-primary px-5 py-2">Return to Shop</a>
+        </div>
+    </div>
+</div>

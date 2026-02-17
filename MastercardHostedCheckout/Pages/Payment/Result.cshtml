@@ -1,0 +1,41 @@
+@page "/payment/result"
+@model dynamic
+@{
+    var orderId = Request.Query["orderId"].ToString();
+}
+<div class="container py-5">
+    <div class="card shadow-sm mx-auto" style="max-width: 600px;">
+        <div class="card-body">
+            <h2 class="card-title h4 border-bottom pb-3 mb-4">Payment Result</h2>
+            <div class="mb-3">
+                <strong>Order ID:</strong> <span class="text-primary">@orderId</span>
+            </div>
+
+            <button class="btn btn-outline-primary mb-4" onclick="check()">Verify with Server</button>
+
+            <div class="bg-light p-3 rounded" style="min-height: 100px;">
+                <h6 class="text-muted mb-2">MPGS Response:</h6>
+                <pre id="out" class="mb-0" style="white-space: pre-wrap; font-size: 0.85rem;"></pre>
+            </div>
+            
+            <div class="mt-4">
+                <a href="/Pay" class="btn btn-link px-0">Try Another Payment</a>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+  async function check(){
+    const out = document.getElementById("out");
+    out.textContent = "Verifying...";
+    
+    try {
+      const r = await fetch("/api/mpgs/order/@orderId");
+      const data = await r.json();
+      out.textContent = JSON.stringify(data, null, 2);
+    } catch (e) {
+      out.textContent = "Error: " + e.message;
+    }
+  }
+</script>

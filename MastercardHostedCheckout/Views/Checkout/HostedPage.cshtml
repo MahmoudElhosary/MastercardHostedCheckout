@@ -1,0 +1,56 @@
+@{
+    ViewData["Title"] = "Processing Payment";
+}
+
+<div class="text-center mt-5">
+    <div class="spinner-border text-primary" role="status">
+        <span class="visually-hidden">Loading...</span>
+    </div>
+    <p class="mt-3">Redirecting to Mastercard Hosted Checkout...</p>
+</div>
+
+<script src="https://test-gateway.mastercard.com/static/checkout/checkout.min.js"
+        data-error="errorCallback"
+        data-cancel="cancelCallback"
+        data-complete="completeCallback">
+</script>
+
+<script type="text/javascript">
+    console.log("Mastercard Checkout library loaded.");
+    console.log("Session ID: @ViewBag.SessionId");
+    console.log("Merchant ID: @ViewBag.MerchantId");
+
+    function errorCallback(error) {
+        console.error("Mastercard Error:", JSON.stringify(error));
+        alert("3DS Error: " + (error.cause || 'Unknown Error'));
+        window.location.href = '@Url.Action("Error", "Checkout")?message=' + encodeURIComponent(error.cause || 'An error occurred during payment.');
+    }
+
+    function cancelCallback() {
+        console.log('Payment cancelled');
+        window.location.href = '@Url.Action("Index", "Checkout")';
+    }
+
+    function completeCallback(resultIndicator, sessionVersion) {
+        console.log('Payment complete event received!');
+        console.log('Result Indicator:', resultIndicator);
+        console.log('Session Version:', sessionVersion);
+        
+        var redirectUrl = '@Url.Action("Success", "Checkout")?resultIndicator=' + resultIndicator + '&sessionVersion=' + sessionVersion + '&orderId=@ViewBag.OrderId&merchantId=@ViewBag.MerchantId';
+        console.log('Redirecting to:', redirectUrl);
+        window.location.href = redirectUrl;
+    }
+
+    try {
+        Checkout.configure({
+            session: {
+                id: '@ViewBag.SessionId'
+            }
+        });
+
+        console.log("Checkout configured, launching payment page...");
+        Checkout.showPaymentPage();
+    } catch (e) {
+        console.error("Configuration error:", e);
+    }
+</script>
