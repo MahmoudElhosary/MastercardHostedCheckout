@@ -9,48 +9,64 @@
     <p class="mt-3">Redirecting to Mastercard Hosted Checkout...</p>
 </div>
 
-<script src="https://test-gateway.mastercard.com/static/checkout/checkout.min.js"
+<script src="https://test-gateway.mastercard.com/static/checkout/checkout.min.js?version=72"
         data-error="errorCallback"
         data-cancel="cancelCallback"
         data-complete="completeCallback">
 </script>
 
-<script type="text/javascript">
-    console.log("Mastercard Checkout library loaded.");
-    console.log("Session ID: @ViewBag.SessionId");
-    console.log("Merchant ID: @ViewBag.MerchantId");
+<script>
+    const orderId = "@ViewBag.OrderId";
+    const sessionId = "@ViewBag.SessionId";
+    const merchantId = "@ViewBag.MerchantId";
+    const authTransactionId = "@ViewBag.AuthTransactionId";
 
-    function errorCallback(error) {
-        console.error("Mastercard Error:", JSON.stringify(error));
-        alert("3DS Error: " + (error.cause || 'Unknown Error'));
-        window.location.href = '@Url.Action("Error", "Checkout")?message=' + encodeURIComponent(error.cause || 'An error occurred during payment.');
+    function errorCallback(err) {
+        console.error("Mastercard Checkout Error Object:", err);
+        alert("Payment error: " + (err?.cause || "Unknown"));
+        location.href = "/Checkout/Error";
     }
 
     function cancelCallback() {
-        console.log('Payment cancelled');
-        window.location.href = '@Url.Action("Index", "Checkout")';
+        alert("Payment cancelled");
+        location.href = "/Checkout/Index";
     }
 
-    function completeCallback(resultIndicator, sessionVersion) {
-        console.log('Payment complete event received!');
-        console.log('Result Indicator:', resultIndicator);
-        console.log('Session Version:', sessionVersion);
+    async function completeCallback(resultIndicator, sessionVersion) {
+        try {
+            console.log("3DS complete, calling PAY API...");
 
-        var redirectUrl = '@Url.Action("Success", "Checkout")?resultIndicator=' + resultIndicator + '&sessionVersion=' + sessionVersion + '&orderId=@ViewBag.OrderId&merchantId=@ViewBag.MerchantId';
-        console.log('Redirecting to:', redirectUrl);
-        window.location.href = redirectUrl;
-    }
+            const res = await fetch("/api/payment/pay", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                    orderId: orderId,
+                    sessionId: sessionId,
+                    authTransactionId: authTransactionId
+                })
+            });
 
-    try {
-        Checkout.configure({
-            session: {
-                id: '@ViewBag.SessionId'
+            const data = await res.json();
+            console.log("PAY response:", data);
+
+            if (res.ok) {
+                window.location.href =
+                    `/Checkout/Success?orderId=${orderId}&sessionId=${sessionId}&merchantId=${merchantId}`;
+            } else {
+                alert("Payment failed: " + (data?.error || "Unknown error"));
+                location.href = "/Checkout/Error";
             }
-        });
 
-        console.log("Checkout configured, launching payment page...");
-        Checkout.showPaymentPage();
-    } catch (e) {
-        console.error("Configuration error:", e);
+        } catch (e) {
+            console.error("PAY API error:", e);
+            alert("PAY API error");
+            location.href = "/Checkout/Error";
+        }
     }
+
+    Checkout.configure({
+        session: { id: sessionId }
+    });
+
+    Checkout.showPaymentPage();
 </script>
