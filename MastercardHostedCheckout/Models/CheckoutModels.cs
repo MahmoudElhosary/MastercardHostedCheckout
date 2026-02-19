@@ -59,9 +59,9 @@ namespace MastercardHostedCheckout.Models
 
         [JsonPropertyName("cancelUrl")]
         public string? CancelUrl { get; set; }
-        [JsonPropertyName("redirectMerchantUrl")] // حل إيرور CS0117
+        [JsonPropertyName("redirectMerchantUrl")] 
         public string? RedirectMerchantUrl { get; set; }
-        [JsonPropertyName("retryAttemptCount")] // حل إيرور CS0117
+        [JsonPropertyName("retryAttemptCount")] 
         public int? RetryAttemptCount { get; set; }
 
         [JsonPropertyName("displayControl")]
@@ -85,9 +85,9 @@ namespace MastercardHostedCheckout.Models
         [JsonPropertyName("billingAddress")]
         public string? BillingAddress { get; set; } // HIDE or OPTIONAL
 
-        [JsonPropertyName("customerEmail")] // حل إيرور CS0117
+        [JsonPropertyName("customerEmail")] 
         public string? CustomerEmail { get; set; }
-        [JsonPropertyName("shipping")] // حل إيرور CS0117
+        [JsonPropertyName("shipping")] 
         public string? Shipping { get; set; }
     }
 
@@ -104,7 +104,7 @@ namespace MastercardHostedCheckout.Models
         public string? Id { get; set; }
 
         [JsonPropertyName("amount")]
-        public string? Amount { get; set; } // نصيحة: اتركه String لتجنب مشاكل الكسور
+        public string? Amount { get; set; } 
 
         [JsonPropertyName("currency")]
         public string? Currency { get; set; }

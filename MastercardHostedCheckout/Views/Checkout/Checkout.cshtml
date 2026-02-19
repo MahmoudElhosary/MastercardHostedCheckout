@@ -1,0 +1,141 @@
+﻿@page
+@model dynamic
+@{
+    ViewData["Title"] = "Checkout";
+}
+<!doctype html>
+<html>
+<head>
+    <meta charset="utf-8" />
+    <title>Checkout - Mastercard</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+
+    <!-- Mastercard Checkout JS -->
+    <script src="https://test-gateway.mastercard.com/static/checkout/checkout.min.js?version=72"
+            data-error="errorCallback"
+            data-cancel="cancelCallback"
+            data-complete="completeCallback"></script>
+</head>
+<body class="container py-5">
+
+    <div class="card shadow-sm mx-auto" style="max-width: 450px;">
+        <div class="card-body">
+            <h3 class="card-title text-center mb-4">Mastercard Hosted Checkout</h3>
+
+            <form id="checkoutForm">
+                <div class="mb-3">
+                    <label class="form-label">Amount</label>
+                    <input type="number" step="0.001" class="form-control" id="amount" value="1.000" required>
+                </div>
+
+                <div class="mb-3">
+                    <label class="form-label">Currency</label>
+                    <select class="form-select" id="currency">
+                        <option value="KWD" selected>KWD</option>
+                        <option value="USD">USD</option>
+                        <option value="EUR">EUR</option>
+                    </select>
+                </div>
+
+                <button type="button" id="payBtn" class="btn btn-primary w-100 py-2" onclick="startPay()">
+                    Pay Now
+                </button>
+            </form>
+
+            <div id="debug" class="mt-3 small text-muted" style="white-space: pre-wrap;"></div>
+        </div>
+    </div>
+
+    <script>
+        async function startPay() {
+            const btn = document.getElementById("payBtn");
+            const debug = document.getElementById("debug");
+
+            btn.disabled = true;
+            btn.innerText = "Processing...";
+            debug.textContent = "";
+
+            const amount = document.getElementById("amount").value;
+            const currency = document.getElementById("currency").value;
+
+            try {
+                // ✅ إنشاء session من السيرفر
+                const res = await fetch("/api/mpgs/session", { method: "POST" });
+                const data = await res.json();
+
+                if (!data.sessionId) throw new Error("Session ID missing");
+
+                const sessionId = data.sessionId;
+                const orderId = data.orderId;
+
+                // ✅ إعداد Hosted Checkout
+                Checkout.configure({
+                    session: { id: sessionId }
+                });
+
+                // ✅ تخزين البيانات مؤقتاً
+                window.checkoutData = { orderId, sessionId, amount, currency };
+
+                // ✅ فتح صفحة الدفع
+                Checkout.showPaymentPage();
+
+            } catch (err) {
+                debug.textContent = "Error: " + err.message;
+                btn.disabled = false;
+                btn.innerText = "Pay Now";
+            }
+        }
+
+        // ✅ بعد نجاح 3DS
+        function completeCallback(resultIndicator, sessionVersion) {
+
+            const data = window.checkoutData;
+            if (!data) {
+                alert("Checkout data missing!");
+                return;
+            }
+
+            fetch("/api/payment/pay", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                    orderId: data.orderId,
+                    sessionId: data.sessionId,
+                    amount: data.amount,
+                    currency: data.currency,
+                    authTransactionId: resultIndicator
+                })
+            })
+            .then(r => r.json())
+            .then(resp => {
+                console.log("PAY Response:", resp);
+
+                if (resp.result === "SUCCESS") {
+                    window.location.href =
+                        `/Checkout/Success?orderId=${data.orderId}&sessionId=${data.sessionId}`;
+                } else {
+                    window.location.href =
+                        `/Checkout/Error?message=${encodeURIComponent(resp.error || 'Payment Failed')}`;
+                }
+            })
+            .catch(e => {
+                console.error("PAY Error:", e);
+                window.location.href =
+                    `/Checkout/Error?message=${encodeURIComponent(e.message)}`;
+            });
+        }
+
+        function errorCallback(err) {
+            console.error("MPGS error:", err);
+            alert("Payment error: " + (err?.cause || "unknown"));
+            location.reload();
+        }
+
+        function cancelCallback() {
+            alert("Payment cancelled by user");
+            location.reload();
+        }
+    </script>
+
+</body>
+</html>

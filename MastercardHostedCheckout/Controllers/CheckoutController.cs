@@ -2,6 +2,7 @@
 using MastercardHostedCheckout.Services;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.Options;
+using System.Globalization;
 using System.Text.Json;
 
 namespace MastercardHostedCheckout.Controllers
@@ -11,21 +12,12 @@ namespace MastercardHostedCheckout.Controllers
         private readonly IMastercardService _mastercardService;
         private readonly MastercardConfig _config;
 
-        public CheckoutController(IMastercardService mastercardService, IOptions<MastercardConfig> config)
+        public CheckoutController(
+            IMastercardService mastercardService,
+            IOptions<MastercardConfig> config)
         {
             _mastercardService = mastercardService;
             _config = config.Value;
-        }
-
-        private string GetMerchantIdForCurrency(string currency)
-        {
-            return currency?.ToUpper() switch
-            {
-                "KWD" => string.IsNullOrEmpty(_config.MerchantIdKwd) ? _config.MerchantId : _config.MerchantIdKwd,
-                "USD" => string.IsNullOrEmpty(_config.MerchantIdUsd) ? _config.MerchantId : _config.MerchantIdUsd,
-                "EUR" => string.IsNullOrEmpty(_config.MerchantIdEur) ? _config.MerchantId : _config.MerchantIdEur,
-                _ => _config.MerchantId
-            };
         }
 
         public IActionResult Index()
@@ -33,205 +25,185 @@ namespace MastercardHostedCheckout.Controllers
             return View();
         }
 
+        // =========================
+        // INITIATE CHECKOUT
+        // =========================
         [HttpPost]
-        public async Task<IActionResult> InitiateCheckout(decimal amount, string currency, bool isPaymentLink = false)
+        public async Task<IActionResult> InitiateCheckout(decimal amount, string currency)
         {
-            var orderId = "ORDER_" + Guid.NewGuid().ToString("N").Substring(0, 8);
-            var merchantId = GetMerchantIdForCurrency(currency);
+            currency = currency.ToUpper();
+
+            // ✅ تنسيق المبلغ حسب العملة
+            string formattedAmount = FormatAmount(amount, currency);
+
+            var orderId = "ORDER_" + Guid.NewGuid().ToString("N")[..8];
+            var merchantId = GetMerchantId(currency);
 
             var request = new InitiateCheckoutRequest
             {
+                Order = new Order
+                {
+                    Id = orderId,
+                    Amount = formattedAmount,
+                    Currency = currency,
+                    Description = $"Order for {formattedAmount} {currency}"
+                },
                 Interaction = new Interaction
                 {
-                    ReturnUrl = Url.Action("Success", "Checkout", new { orderId = orderId, merchantId = merchantId }, Request.Scheme),
+                    Operation = "PURCHASE",
+                    ReturnUrl = Url.Action(
+                        "Success",
+                        "Checkout",
+                        new { orderId, merchantId },
+                        Request.Scheme),
+                    CancelUrl = Url.Action(
+                        "Index",
+                        "Checkout",
+                        null,
+                        Request.Scheme),
                     Merchant = new Merchant
                     {
-                        Name = "KIndus Dev Store",
-                        // Url = Request.Scheme + "://" + Request.Host // Re-commenting: Still causing error even in v72
-                    },
-                    RedirectMerchantUrl = Url.Action("Error", "Checkout", null, Request.Scheme),
-                    RetryAttemptCount = 3,
-                    DisplayControl = new DisplayControl
-                    {
-                        CardSecurityCode = "MANDATORY",
-                        BillingAddress = "OPTIONAL",
-                        CustomerEmail = "OPTIONAL",
-                        Shipping = "HIDE"
+                        Name = "ADAAWER MPGS"
                     },
                     Action = new InteractionAction
                     {
                         ThreeDSecure = "MANDATORY"
+                    },
+                    DisplayControl = new DisplayControl
+                    {
+                        BillingAddress = "HIDE",
+                        CardSecurityCode = "MANDATORY"
                     }
-                },
-                Order = new Order
-                {
-                    Id = orderId,
-                    Amount = currency?.ToUpper() == "KWD" ? amount.ToString("0.000") : amount.ToString("0.00"),
-                    Currency = currency?.ToUpper(),
-                    Description = "Order for " + amount.ToString("F2") + " " + currency
                 }
             };
 
-            System.Diagnostics.Debug.WriteLine($"[INITIATE] Generated ReturnUrl: {request.Interaction.ReturnUrl}");
-            request.Interaction.Operation = "PURCHASE"; // Reverted from AUTHORIZE as merchant is not enabled for it
-
-            var (response, errors) = await _mastercardService.InitiateCheckoutAsync(merchantId, request);
+            var (response, error) =
+                await _mastercardService.InitiateCheckoutAsync(merchantId, request);
 
             if (response != null && response.Result == "SUCCESS")
             {
                 ViewBag.SessionId = response.Session?.Id;
-                ViewBag.MerchantId = merchantId;
                 ViewBag.OrderId = orderId;
-                ViewBag.Region = "TEST"; // Or extract from BaseUrl
+                ViewBag.MerchantId = merchantId;
+                ViewBag.Amount = formattedAmount;
+                ViewBag.Currency = currency;
                 return View("HostedPage");
             }
 
-            ViewBag.ErrorMessage = errors ?? "Failed to initiate session.";
+            ViewBag.ErrorMessage = error ?? "Failed to initiate session.";
             return View("Error");
         }
 
-        [HttpPost]
-        public async Task<IActionResult> DeletePaymentLink(string currency, string linkId)
-        {
-            var merchantId = GetMerchantIdForCurrency(currency);
-            var success = await _mastercardService.DeletePaymentLinkAsync(merchantId, linkId);
-            if (success)
-            {
-                return Json(new { success = true, message = "Link deleted successfully." });
-            }
-            return Json(new { success = false, message = "Failed to delete link." });
-        }
-
-
+        // =========================
+        // SUCCESS CALLBACK
+        // =========================
         [HttpGet]
-        public async Task<IActionResult> Success(string? orderId, string? merchantId, string? resultIndicator)
+        public async Task<IActionResult> Success(string orderId, string merchantId)
         {
-            if (string.IsNullOrEmpty(orderId)) return HandleError("Order ID is missing.");
+            if (string.IsNullOrEmpty(orderId))
+                return Error("OrderId missing.");
 
-            // 1. استرجاع بيانات الطلب لمعرفة حالته الحالية
-            var (orderResponse, orderErrors) = await _mastercardService.RetrieveOrderAsync(merchantId ?? _config.MerchantId, orderId);
+            merchantId ??= _config.MerchantId;
+
+            var (orderResponse, orderError) =
+                await _mastercardService.RetrieveOrderAsync(merchantId, orderId);
 
             if (orderResponse == null)
-                return HandleError($"Retrieve Order Failed: {orderErrors}");
+                return Error(orderError ?? "Retrieve order failed.");
 
-            // 2. استخراج المبلغ والعملة والحالة
-            if (!TryGetOrderData(orderResponse, out decimal amount, out string? currency, out string? orderStatus))
-                return HandleError("Could not retrieve Amount or Currency from the order.");
+            var root = orderResponse.RootElement;
 
-            // 3. التعامل مع الحالات (Logic Flow)
+            decimal amount = 0;
+            string currency = "KWD";
+            string? authTransactionId = null;
 
-            // أ: إذا تم السحب فعلياً (Captured)
-            if (orderStatus == "CAPTURED")
+            // ===== Extract amount & currency =====
+            if (root.TryGetProperty("order", out var order))
             {
-                ViewBag.PaymentStatus = "SUCCESSFUL";
-                return View();
-            }
-
-            // ب: إذا تم التحقق فقط (Authenticated) - نحتاج لإكمال عملية الدفع PAY
-            if (orderStatus == "AUTHENTICATED")
-            {
-                string? authTransactionId = FindAuthenticationTransactionId(orderResponse);
-                if (string.IsNullOrEmpty(authTransactionId))
-                    return HandleError("3DS Authentication ID not found.");
-
-                var payTransactionId = "txn-pay-" + Guid.NewGuid().ToString("N").Substring(0, 6);
-
-                // مناداة السيرفس الذي عدلته أنت (النسخة الجديدة)
-                var (payResponse, payErrors) = await _mastercardService.CompletePaymentAsync(
-                    merchantId ?? _config.MerchantId,
-                    orderId,
-                    payTransactionId,
-                    authTransactionId,
-                    amount,
-                    currency ?? "");
-
-                if (payResponse != null && IsPaymentApproved(payResponse, out _))
+                if (order.TryGetProperty("amount", out var amt))
                 {
-                    ViewBag.PaymentStatus = "SUCCESSFUL";
-                    ViewBag.PayTransactionId = payTransactionId;
-                    return View();
+                    amount = amt.ValueKind == JsonValueKind.Number
+                        ? amt.GetDecimal()
+                        : decimal.Parse(amt.GetString() ?? "0", CultureInfo.InvariantCulture);
                 }
 
-                return HandleError($"Payment Execution Failed: {payErrors}");
+                if (order.TryGetProperty("currency", out var cur))
+                    currency = cur.GetString() ?? "KWD";
             }
 
-            // ج: حالة الفشل أو عدم الاكتمال
-            return HandleError($"Unexpected Order Status: {orderStatus}");
+            // ===== Extract 3DS Authentication ID =====
+            authTransactionId = FindAuthTransactionId(root);
+
+            // ===== Format again for display =====
+            string formattedAmount = FormatAmount(amount, currency);
+
+            ViewBag.OrderId = orderId;
+            ViewBag.MerchantId = merchantId;
+            ViewBag.AuthTransactionId = authTransactionId;
+            ViewBag.Amount = formattedAmount;
+            ViewBag.Currency = currency;
+
+            return View();
+        }
+
+        // =========================
+        // HELPERS
+        // =========================
+
+        private string GetMerchantId(string currency)
+        {
+            return currency switch
+            {
+                "USD" when !string.IsNullOrEmpty(_config.MerchantIdUsd) => _config.MerchantIdUsd,
+                "EUR" when !string.IsNullOrEmpty(_config.MerchantIdEur) => _config.MerchantIdEur,
+                "KWD" when !string.IsNullOrEmpty(_config.MerchantIdKwd) => _config.MerchantIdKwd,
+                _ => _config.MerchantId
+            };
+        }
+
+        // ✅ أهم جزء: تنسيق حسب العملة
+        private string FormatAmount(decimal amount, string currency)
+        {
+            int decimals = currency switch
+            {
+                "KWD" => 3,
+                "BHD" => 3,
+                "JOD" => 3,
+                _ => 2
+            };
+
+            return Math.Round(amount, decimals)
+                       .ToString($"F{decimals}", CultureInfo.InvariantCulture);
+        }
+
+        private string? FindAuthTransactionId(JsonElement root)
+        {
+            if (!root.TryGetProperty("transaction", out var txArray) ||
+                txArray.ValueKind != JsonValueKind.Array)
+                return null;
+
+            foreach (var tx in txArray.EnumerateArray())
+            {
+                if (!tx.TryGetProperty("result", out var res) ||
+                    res.GetString() != "SUCCESS")
+                    continue;
+
+                if (tx.TryGetProperty("authentication", out var auth))
+                {
+                    if (auth.TryGetProperty("3ds", out var threeDs) &&
+                        threeDs.TryGetProperty("transactionId", out var id))
+                    {
+                        return id.GetString();
+                    }
+                }
+            }
+
+            return null;
         }
 
         public IActionResult Error(string message)
         {
             ViewBag.ErrorMessage = message;
-            return View();
-        }
-
-        private bool TryGetOrderData(JsonDocument response, out decimal amount, out string? currency, out string? status)
-        {
-            amount = 0;
-            currency = null;
-            status = response.RootElement.TryGetProperty("status", out JsonElement st) ? st.GetString() : null;
-
-            if (response.RootElement.TryGetProperty("order", out JsonElement orderSection))
-            {
-                // Robust amount parsing: handle both number and string
-                if (orderSection.TryGetProperty("amount", out JsonElement amt))
-                {
-                    if (amt.ValueKind == JsonValueKind.Number) amount = amt.GetDecimal();
-                    else if (amt.ValueKind == JsonValueKind.String && decimal.TryParse(amt.GetString(), out decimal d)) amount = d;
-                }
-
-                if (orderSection.TryGetProperty("currency", out JsonElement cur)) currency = cur.GetString();
-            }
-
-            // Fallback to root properties
-            if (amount == 0 && response.RootElement.TryGetProperty("amount", out JsonElement rootAmt))
-            {
-                if (rootAmt.ValueKind == JsonValueKind.Number) amount = rootAmt.GetDecimal();
-                else if (rootAmt.ValueKind == JsonValueKind.String && decimal.TryParse(rootAmt.GetString(), out decimal d)) amount = d;
-            }
-            if (string.IsNullOrEmpty(currency) && response.RootElement.TryGetProperty("currency", out JsonElement rootCur)) currency = rootCur.GetString();
-
-            return amount > 0 && !string.IsNullOrEmpty(currency);
-        }
-
-        private string? FindAuthenticationTransactionId(JsonDocument orderResponse)
-        {
-            if (orderResponse.RootElement.TryGetProperty("transaction", out JsonElement transactions))
-            {
-                foreach (var transaction in transactions.EnumerateArray())
-                {
-                    // Look for the successful 3DS authentication transaction
-                    if (transaction.TryGetProperty("result", out JsonElement result) &&
-                        result.GetString() == "SUCCESS")
-                    {
-                        // Check for authentication.3ds.transactionId
-                        if (transaction.TryGetProperty("authentication", out JsonElement auth) &&
-                            auth.TryGetProperty("3ds", out JsonElement threeDs))
-                        {
-                            var id = threeDs.TryGetProperty("transactionId", out JsonElement idEl) ? idEl.GetString() : null;
-                            if (!string.IsNullOrEmpty(id)) return id;
-                        }
-                    }
-                }
-            }
-            return null;
-        }
-
-        private bool IsPaymentApproved(JsonDocument payResponse, out string gatewayResult)
-        {
-            var root = payResponse.RootElement;
-            gatewayResult = root.TryGetProperty("result", out JsonElement r) ? (r.GetString() ?? "UNKNOWN") : "UNKNOWN";
-
-            return root.TryGetProperty("response", out JsonElement resp) &&
-                   resp.TryGetProperty("gatewayCode", out JsonElement code) &&
-                   code.GetString() == "APPROVED";
-        }
-
-        private IActionResult HandleError(string message, string? payTransactionId = null)
-        {
-            System.Diagnostics.Debug.WriteLine($"[SUCCESS CALLBACK] ERROR: {message}");
-            ViewBag.ErrorMessage = message;
-            ViewBag.PayTransactionId = payTransactionId;
             return View("Error");
         }
     }
