@@ -1,24 +1,63 @@
-@{
+﻿@{
     ViewData["Title"] = "Payment Successful";
 }
 
 <div class="container mt-5 text-center">
-    <div class="card shadow-sm p-5">
+    <div id="loading" class="spinner-border text-primary" role="status"></div>
+
+    <div id="successContent" class="card shadow-sm p-5" style="display:none;">
         <div class="mb-4">
             <i class="bi bi-check-circle-fill text-success" style="font-size: 4rem;"></i>
         </div>
         <h1 class="display-5 fw-bold mb-3">Thank You!</h1>
         <p class="lead mb-4">Your payment was processed successfully.</p>
-        
+
         <div class="alert alert-light border text-start d-inline-block p-4">
             <p class="mb-1"><strong>Order ID:</strong> <code class="text-primary">@ViewBag.OrderId</code></p>
-            <p class="mb-1"><strong>Payment Transaction ID:</strong> <code class="text-primary">@ViewBag.PayTransactionId</code></p>
-            <p class="mb-1"><strong>Result Indicator:</strong> <code class="text-primary">@ViewBag.ResultIndicator</code></p>
-            <p class="mb-0"><strong>Status:</strong> <span class="badge bg-success">@ViewBag.PaymentStatus</span></p>
+            <p class="mb-1"><strong>Status:</strong> <span class="badge bg-success" id="paymentStatus">Verifying...</span></p>
+            <p class="mb-1"><strong>Amount Paid:</strong> <span id="paidAmount" class="fw-bold">--</span> KWD</p>
+            <p class="mb-0"><strong>Gateway Code:</strong> <code id="gatewayCode">--</code></p>
         </div>
 
         <div class="mt-4">
             <a asp-action="Index" class="btn btn-primary px-5 py-2">Return to Shop</a>
         </div>
     </div>
+
+    <div id="errorContent" class="alert alert-danger" style="display:none;">
+        <h3>Payment Verification Failed</h3>
+        <p id="errorMessage"></p>
+        <a asp-action="Index" class="btn btn-outline-danger">Try Again</a>
+    </div>
 </div>
+
+<script>
+    document.addEventListener("DOMContentLoaded", async function() {
+        const orderId = "@ViewBag.OrderId";
+
+        try {
+            // نداء الـ API المطور اللي عملناه في Program.cs
+            const response = await fetch(`/api/mpgs/verify/${orderId}`);
+            const data = await response.json();
+
+            if (data.isSuccess) {
+                document.getElementById('loading').style.display = 'none';
+                document.getElementById('successContent').style.display = 'block';
+
+                // عرض البيانات الحقيقية من الـ JSON اللي حللناه سوا
+                document.getElementById('paymentStatus').innerText = data.status;
+                document.getElementById('gatewayCode').innerText = data.gatewayCode;
+
+                // جلب المبلغ من الـ RawData (لأننا بعتنا الـ Response كامل)
+                const amount = data.rawData.amount;
+                document.getElementById('paidAmount').innerText = amount;
+            } else {
+                throw new Error(data.gatewayCode || "Payment not captured");
+            }
+        } catch (err) {
+            document.getElementById('loading').style.display = 'none';
+            document.getElementById('errorContent').style.display = 'block';
+            document.getElementById('errorMessage').innerText = "Reason: " + err.message;
+        }
+    });
+</script>

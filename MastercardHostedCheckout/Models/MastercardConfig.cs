@@ -9,7 +9,7 @@ namespace MastercardHostedCheckout.Models
         public string ApiUsername { get; set; } = string.Empty;
         public string ApiPassword { get; set; } = string.Empty;
         public string BaseUrl { get; set; } = string.Empty;
-        public string ApiVersion { get; set; } = "72";
+        public string ApiVersion { get; set; } = "63";
         public string ReturnUrl { get; set; } = string.Empty; 
     }
 }

@@ -1,4 +1,4 @@
-@{
+﻿@{
     ViewData["Title"] = "Processing Payment";
 }
 
@@ -35,7 +35,7 @@
         console.log('Payment complete event received!');
         console.log('Result Indicator:', resultIndicator);
         console.log('Session Version:', sessionVersion);
-        
+
         var redirectUrl = '@Url.Action("Success", "Checkout")?resultIndicator=' + resultIndicator + '&sessionVersion=' + sessionVersion + '&orderId=@ViewBag.OrderId&merchantId=@ViewBag.MerchantId';
         console.log('Redirecting to:', redirectUrl);
         window.location.href = redirectUrl;

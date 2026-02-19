@@ -38,7 +38,7 @@ namespace MastercardHostedCheckout.Controllers
         {
             var orderId = "ORDER_" + Guid.NewGuid().ToString("N").Substring(0, 8);
             var merchantId = GetMerchantIdForCurrency(currency);
-            
+
             var request = new InitiateCheckoutRequest
             {
                 Interaction = new Interaction
